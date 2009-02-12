@@ -26,6 +26,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <dirent.h>
 
 #define LOG_TAG "power"
 #include <utils/Log.h>
@@ -56,7 +57,8 @@ const char * const NEW_PATHS[] = {
 
 const char * const AUTO_OFF_TIMEOUT_DEV = "/sys/android_power/auto_off_timeout";
 
-const char * const LCD_BACKLIGHT = "/sys/class/leds/lcd-backlight/brightness";
+const char * const LCD_BACKLIGHT_DIR = "/sys/class/leds/lcd-backlight";
+const char * const NEW_BACKLIGHT_DIR_BASE = "/sys/class/backlight/";
 const char * const BUTTON_BACKLIGHT = "/sys/class/leds/button-backlight/brightness";
 const char * const KEYBOARD_BACKLIGHT = "/sys/class/leds/keyboard-backlight/brightness";
 
@@ -184,6 +186,60 @@ set_a_light(const char* path, int value)
     }
 }
 
+
+static void
+set_lcd_light(int value)
+{
+    int fd;
+    static int already_warned = 0;
+    char backlight_dir[256];
+    char filename[256];
+    char buffer[20];
+
+    // Set default backlight directory
+    strcpy(backlight_dir, LCD_BACKLIGHT_DIR);
+    DIR * dir = opendir(NEW_BACKLIGHT_DIR_BASE);
+    if(dir != NULL) {
+	struct dirent * ent = readdir(dir);
+	while (ent != NULL) {
+	    if(strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {	
+		// Change backlight directory
+		strcpy(backlight_dir, NEW_BACKLIGHT_DIR_BASE);
+		strncat(backlight_dir, ent->d_name, sizeof(backlight_dir));
+		break;
+	    }
+	    ent = readdir(dir);
+	}
+	close(dir);
+    } 
+
+    strcpy(filename, backlight_dir);
+    strncat(filename, "/max_brightness", sizeof(filename));
+    fd = open(filename, O_RDONLY);
+    if (fd >= 0) {
+	if (read(fd, buffer, sizeof(buffer)) > 0) {
+	    int max_brightness = atol(buffer);
+	    value = value * max_brightness / 255;
+	}
+    }
+
+    strcpy(filename, backlight_dir);
+    strncat(filename, "/brightness", sizeof(filename));
+    fd = open(filename, O_RDWR);
+    LOGE("write to %s\n", filename);
+    if (fd >= 0) {
+    	int bytes = sprintf(buffer, "%d\n", value);
+    	write(fd, buffer, bytes);
+    	close(fd);
+	LOGE("write %d to %s\n", value, filename);
+    } else {
+    	if (already_warned == 0) {
+       	    LOGE("set_lcd_light failed to open %s\n", filename);
+            already_warned = 1;
+        }
+    }
+}
+
 int
 set_light_brightness(unsigned int mask, unsigned int brightness)
 {
@@ -199,7 +255,7 @@ set_light_brightness(unsigned int mask, unsigned int brightness)
     }
 
     if (mask & SCREEN_LIGHT) {
-        set_a_light(LCD_BACKLIGHT, brightness);
+        set_lcd_light(brightness);
     }
 
     if (mask & BUTTON_LIGHT) {
