@@ -164,6 +164,7 @@ typedef struct {
     int     utc_diff;
     GpsLocation  fix;
     gps_location_callback  callback;
+    gps_nmea_callback nmea_callback;
     char    in[ NMEA_MAX_SIZE+1 ];
 } NmeaReader;
 
@@ -206,6 +207,7 @@ nmea_reader_init( NmeaReader*  r )
     r->utc_mon  = -1;
     r->utc_day  = -1;
     r->callback = NULL;
+    r->nmea_callback = NULL;
 
     nmea_reader_update_utc_diff( r );
 }
@@ -220,6 +222,14 @@ nmea_reader_set_callback( NmeaReader*  r, gps_location_callback  cb )
         r->callback( &r->fix );
         r->fix.flags = 0;
     }
+}
+
+static void
+nmea_reader_set_nmea_callback( NmeaReader*  r, gps_nmea_callback  cb )
+{
+    r->nmea_callback = cb;
+    //There is no point to do anything else, since registering for nmea callbacks
+    //we are interested in raw data that comes.
 }
 
 
@@ -464,6 +474,11 @@ nmea_reader_parse( NmeaReader*  r )
         tok.p -= 2;
         D("unknown sentence '%.*s", tok.end-tok.p, tok.p);
     }
+
+    if (r->nmea_callback) {
+        r->nmea_callback(&r->fix.timestamp, r->in, r->pos );
+    }
+
     if (r->fix.flags != 0) {
 #if GPS_DEBUG
         char   temp[256];
@@ -690,9 +705,11 @@ gps_state_thread( void*  arg )
                     }
                     else if (cmd == CMD_START) {
                         if (!started) {
-                            D("gps thread starting  location_cb=%p", state->callbacks.location_cb);
+                            D("gps thread starting  location_cb=%p, nmea_cb=%p", state->callbacks.location_cb, 
+                                state->callbacks.nmea_cb);
                             started = 1;
                             nmea_reader_set_callback( reader, state->callbacks.location_cb );
+                            nmea_reader_set_nmea_callback( reader, state->callbacks.nmea_cb );
                         }
                     }
                     else if (cmd == CMD_STOP) {
@@ -700,6 +717,7 @@ gps_state_thread( void*  arg )
                             D("gps thread stopping");
                             started = 0;
                             nmea_reader_set_callback( reader, NULL );
+                            nmea_reader_set_nmea_callback( reader, NULL );
                         }
                     }
                 }
