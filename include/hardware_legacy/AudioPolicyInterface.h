@@ -106,7 +106,8 @@ public:
                                     uint32_t samplingRate = 0,
                                     uint32_t Format = AudioSystem::FORMAT_DEFAULT,
                                     uint32_t channels = 0,
-                                    AudioSystem::audio_in_acoustics acoustics = (AudioSystem::audio_in_acoustics)0) = 0;
+                                    AudioSystem::audio_in_acoustics acoustics = (AudioSystem::audio_in_acoustics)0,
+                                    AudioSystem::audio_input_clients *inputClientId = NULL) = 0;
     // indicates to the audio policy manager that the input starts being used.
     virtual status_t startInput(audio_io_handle_t input) = 0;
     // indicates to the audio policy manager that the input stops being used.
@@ -185,9 +186,10 @@ public:
                                     uint32_t *pSamplingRate,
                                     uint32_t *pFormat,
                                     uint32_t *pChannels,
-                                    uint32_t acoustics) = 0;
+                                    uint32_t acoustics,
+                                    uint32_t *pInputClientId = NULL) = 0;
     // closes an audio input
-    virtual status_t closeInput(audio_io_handle_t input) = 0;
+    virtual status_t closeInput(audio_io_handle_t input, uint32_t *inputClientId = NULL) = 0;
     //
     // misc control functions
     //

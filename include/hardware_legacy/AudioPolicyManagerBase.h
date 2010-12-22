@@ -88,7 +88,8 @@ public:
                                             uint32_t samplingRate,
                                             uint32_t format,
                                             uint32_t channels,
-                                            AudioSystem::audio_in_acoustics acoustics);
+                                            AudioSystem::audio_in_acoustics acoustics,
+                                            AudioSystem::audio_input_clients *inputClientId);
         // indicates to the audio policy manager that the input starts being used.
         virtual status_t startInput(audio_io_handle_t input);
         // indicates to the audio policy manager that the input stops being used.
@@ -162,13 +163,14 @@ protected:
 
             status_t    dump(int fd);
 
-            uint32_t mSamplingRate;                     //
-            uint32_t mFormat;                           // input configuration
-            uint32_t mChannels;                         //
-            AudioSystem::audio_in_acoustics mAcoustics; //
-            uint32_t mDevice;                           // current device this input is routed to
-            uint32_t mRefCount;                         // number of AudioRecord clients using this output
-            int      mInputSource;                     // input source selected by application (mediarecorder.h)
+            uint32_t mSamplingRate;                           //
+            uint32_t mFormat;                                 // input configuration
+            uint32_t mChannels;                               //
+            AudioSystem::audio_in_acoustics mAcoustics;       //
+            uint32_t mDevice;                                 // current device this input is routed to
+            uint32_t mRefCount;                               // number of AudioRecord clients using this output
+            int      mInputSource;                            // input source selected by application (mediarecorder.h)
+            AudioSystem::audio_input_clients *mInputClientId; // clientId
         };
 
         // stream descriptor used for volume control
