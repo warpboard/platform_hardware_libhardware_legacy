@@ -59,8 +59,9 @@ static char iface[PROPERTY_VALUE_MAX];
 #ifndef WIFI_FIRMWARE_LOADER
 #define WIFI_FIRMWARE_LOADER		""
 #endif
+#ifndef WIFI_TEST_INTERFACE
 #define WIFI_TEST_INTERFACE		"sta"
-
+#endif
 #ifndef WIFI_DRIVER_FW_PATH_STA
 #define WIFI_DRIVER_FW_PATH_STA		NULL
 #endif
@@ -70,12 +71,18 @@ static char iface[PROPERTY_VALUE_MAX];
 #ifndef WIFI_DRIVER_FW_PATH_P2P
 #define WIFI_DRIVER_FW_PATH_P2P		NULL
 #endif
-
 #ifndef WIFI_DRIVER_FW_PATH_PARAM
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
 #endif
-
-#define WIFI_DRIVER_LOADER_DELAY	1000000
+#ifndef WIFI_FIRMWARE_DELAY_COUNT
+#define WIFI_FIRMWARE_DELAY_COUNT       20
+#endif
+#ifndef WIFI_FIRMWARE_LOADER_DELAY
+#define WIFI_FIRMWARE_LOADER_DELAY      250000
+#endif
+#ifndef WIFI_NET_DEVICE_STATUS_PATH
+#define WIFI_NET_DEVICE_STATUS_PATH     "/proc/net/dev"
+#endif
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
 #ifdef WIFI_DRIVER_MODULE_PATH
@@ -195,6 +202,38 @@ int is_wifi_driver_loaded() {
 #endif
 }
 
+/*
+ * The function is waiting until WIFI_TEST_INTERFACE interface will be created.
+ * Waits at most WIFI_FIRMWARE_DELAY_COUNT*WIFI_FIRMWARE_LOADER_DELAY/10^6 seconds
+ * for completion
+ * @returns 0 if WIFI_TEST_INTERFACE interface was created properly
+ * @returns < 0, it indicates that WIFI_TEST_INTERFACE interface wasn't created
+ */
+static int waiting_for_wlan_interface() {
+    FILE *proc;
+    char line[sizeof(WIFI_TEST_INTERFACE)+10];
+    int count = WIFI_FIRMWARE_DELAY_COUNT;
+
+    while (count--) {
+        if ((proc = fopen(WIFI_NET_DEVICE_STATUS_PATH, "r")) == NULL) {
+            LOGI("Could not open %s: %s", WIFI_NET_DEVICE_STATUS_PATH, strerror(errno));
+            return -1;
+        }
+
+        while ((fgets(line, sizeof(line), proc)) != NULL) {
+            if (strstr(line, WIFI_TEST_INTERFACE) != NULL) {
+                fclose(proc);
+                return 0;
+            }
+        }
+
+        fclose(proc);
+        usleep(WIFI_FIRMWARE_LOADER_DELAY);
+    }
+
+    return -1;
+}
+
 int wifi_load_driver()
 {
 #ifdef WIFI_DRIVER_MODULE_PATH
@@ -209,7 +248,8 @@ int wifi_load_driver()
         return -1;
 
     if (strcmp(FIRMWARE_LOADER,"") == 0) {
-        /* usleep(WIFI_DRIVER_LOADER_DELAY); */
+        if (waiting_for_wlan_interface() != 0)
+            return -1;
         property_set(DRIVER_PROP_NAME, "ok");
     }
     else {
