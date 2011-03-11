@@ -60,9 +60,18 @@ static char iface[PROPERTY_VALUE_MAX];
 #ifndef WIFI_FIRMWARE_LOADER
 #define WIFI_FIRMWARE_LOADER		""
 #endif
+#ifndef WIFI_TEST_INTERFACE
 #define WIFI_TEST_INTERFACE		"sta"
-
-#define WIFI_DRIVER_LOADER_DELAY	1000000
+#endif
+#ifndef WIFI_FIRMWARE_DELAY_COUNT
+#define WIFI_FIRMWARE_DELAY_COUNT       20
+#endif
+#ifndef WIFI_FIRMWARE_LOADER_DELAY
+#define WIFI_FIRMWARE_LOADER_DELAY      250000
+#endif
+#ifndef WIFI_NET_DEVICE_STATUS_PATH
+#define WIFI_NET_DEVICE_STATUS_PATH     "/proc/net/dev"
+#endif
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
 static const char DRIVER_MODULE_NAME[]  = WIFI_DRIVER_MODULE_NAME;
@@ -166,6 +175,38 @@ static int check_driver_loaded() {
     return 0;
 }
 
+/*
+ * The function is waiting until WIFI_TEST_INTERFACE interface will be created.
+ * Waits at most WIFI_FIRMWARE_DELAY_COUNT*WIFI_FIRMWARE_LOADER_DELAY/10^6 seconds
+ * for completion
+ * @returns 0 if WIFI_TEST_INTERFACE interface was created properly
+ * @returns < 0, it indicates that WIFI_TEST_INTERFACE interface wasn't created
+ */
+static int waiting_for_wlan_interface() {
+    FILE *proc;
+    char line[sizeof(WIFI_TEST_INTERFACE)+10];
+    int count = WIFI_FIRMWARE_DELAY_COUNT;
+
+    while (count--) {
+        if ((proc = fopen(WIFI_NET_DEVICE_STATUS_PATH, "r")) == NULL) {
+            LOGI("Could not open %s: %s", WIFI_NET_DEVICE_STATUS_PATH, strerror(errno));
+            return -1;
+        }
+
+        while ((fgets(line, sizeof(line), proc)) != NULL) {
+            if (strstr(line, WIFI_TEST_INTERFACE) != NULL) {
+                fclose(proc);
+                return 0;
+            }
+        }
+
+        fclose(proc);
+        usleep(WIFI_FIRMWARE_LOADER_DELAY);
+    }
+
+    return -1;
+}
+
 int wifi_load_driver()
 {
     char driver_status[PROPERTY_VALUE_MAX];
@@ -179,7 +220,8 @@ int wifi_load_driver()
         return -1;
 
     if (strcmp(FIRMWARE_LOADER,"") == 0) {
-        usleep(WIFI_DRIVER_LOADER_DELAY);
+        if (waiting_for_wlan_interface() != 0)
+            return -1;
         property_set(DRIVER_PROP_NAME, "ok");
     }
     else {
