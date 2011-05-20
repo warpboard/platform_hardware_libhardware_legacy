@@ -1,0 +1,8 @@
+Change-Id: Ic331e9046df2ffefa7993f0d375cd492c8e72e9f
+Code-Review+2: Jean-Baptiste Queru <jbq@google.com>
+Verified+1: Jean-Baptiste Queru <jbq@google.com>
+Submitted-by: Jean-Baptiste Queru <jbq@google.com>
+Submitted-at: Wed, 18 Mar 2009 13:55:08 -0700
+Reviewed-on: https://review.source.android.com/9178
+Project: platform/hardware/libhardware_legacy
+Branch: refs/heads/master
