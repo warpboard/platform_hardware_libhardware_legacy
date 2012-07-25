@@ -237,6 +237,59 @@ int wifi_load_driver()
     if (insmod(DRIVER_MODULE_PATH, DRIVER_MODULE_ARG) < 0)
         return -1;
 
+    /*
+     * The sysfs nodes exported by the driver are typically created by
+     * initialization code that runs in the background after the driver is
+     * loaded.  Since the caller of this procedure may expect to use the driver
+     * immediately upon return, this procedure needs to wait (up to some
+     * maximum time) for the driver to create the relevant sysfs node.
+     *
+     * Do exponential-backoff on the waiting to compromise between promptness
+     * and system-load.  Use 1.2x increase per wait-cycle starting at 10 ms and
+     * a maximum total wait time of 10 seconds.
+     */
+    {
+        char ifc[PROPERTY_VALUE_MAX];
+        char *sysfs_path;
+        int ret;
+        unsigned int usec_waited;
+        unsigned int current_wait_usec;
+        struct stat s;
+
+        property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
+        /*
+         * The parts of the following path outside of the interpolated
+         * interface name are:
+         *
+         *   () device-neutral since they come from the kernel's net/core
+         *      implementation, and
+         *   () exactly what the wpa_supplicant is using and expecting.
+         */
+        ret = asprintf(&sysfs_path, "/sys/class/net/%s/phy80211/name", ifc);
+        if (ret < 0) {
+            ALOGE("Error allocating sysfs path");
+            return -1;
+        }
+        usec_waited = 0;
+        current_wait_usec = 10 * 1000;
+        while ((usec_waited < 10 * 1000 * 1000) &&
+               ((ret = stat(sysfs_path, &s)) != 0)) {
+            usleep(current_wait_usec);
+            usec_waited += current_wait_usec;
+            current_wait_usec = current_wait_usec * 12 / 10;
+        }
+        if (ret == 0) {
+            ALOGI("Wifi driver sysfs node %s present after %d usec wait",
+                sysfs_path, usec_waited);
+        } else {
+            ALOGE("Wifi driver sysfs node %s missing after %d usec wait",
+                sysfs_path, usec_waited);
+            free(sysfs_path);
+            return -1;
+        }
+        free(sysfs_path);
+    }
+
     if (strcmp(FIRMWARE_LOADER,"") == 0) {
         /* usleep(WIFI_DRIVER_LOADER_DELAY); */
         property_set(DRIVER_PROP_NAME, "ok");
