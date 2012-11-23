@@ -2392,6 +2392,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     mpClientInterface->setParameters(output, param.toString(), delayMs);
+    param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
 
     // update stream volumes according to new device
     applyStreamVolumes(output, device, delayMs);
