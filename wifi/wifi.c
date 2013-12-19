@@ -588,6 +588,9 @@ int wifi_stop_supplicant(int p2p_supported)
         strcpy(supplicant_prop_name, SUPP_PROP_NAME);
     }
 
+    /* Close ctrl and exit_sockets[] sockets */
+    wifi_close_sockets();
+
     /* Check whether supplicant already stopped */
     if (property_get(supplicant_prop_name, supp_status, NULL)
         && strcmp(supp_status, "stopped") == 0) {
