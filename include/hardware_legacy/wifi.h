@@ -130,6 +130,12 @@ int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
  */
 const char *get_dhcp_error_string();
 
+/* The mode of WiFi */
+#define WIFI_MAX_SUPP_MODE	3
+#define WIFI_MODE_STA		0
+#define WIFI_MODE_AP		1
+#define WIFI_MODE_P2P_STA	2
+
 /**
  * Return the path to requested firmware
  */
