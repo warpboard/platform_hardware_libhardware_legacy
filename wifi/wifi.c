@@ -98,7 +98,9 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 
 #define WIFI_DRIVER_LOADER_DELAY	1000000
 
-static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
+static const char WPA_SUPPLICANT_IFACE_DIR[]    = "/data/system/wpa_supplicant";
+static const char HOSTAPD_IFACE_DIR[]           = "/data/system/hostapd";
+
 #ifdef WIFI_DRIVER_MODULE_PATH
 static const char DRIVER_MODULE_NAME[]  = WIFI_DRIVER_MODULE_NAME;
 static const char DRIVER_MODULE_TAG[]   = WIFI_DRIVER_MODULE_NAME " ";
@@ -111,9 +113,14 @@ static const char SUPPLICANT_NAME[]     = "wpa_supplicant";
 static const char SUPP_PROP_NAME[]      = "init.svc.wpa_supplicant";
 static const char P2P_SUPPLICANT_NAME[] = "p2p_supplicant";
 static const char P2P_PROP_NAME[]       = "init.svc.p2p_supplicant";
+static const char HOSTAPD_NAME[]        = "hostapd";
+static const char HOSTAPD_PROP_NAME[]   = "init.svc.hostapd";
+
 static const char SUPP_CONFIG_TEMPLATE[]= "/system/etc/wifi/wpa_supplicant.conf";
+static const char HOSTAPD_CONFIG_TEMPLATE[]  = "/system/etc/wifi/hostapd.conf";
 static const char SUPP_CONFIG_FILE[]    = "/data/misc/wifi/wpa_supplicant.conf";
 static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
+static const char HOSTAPD_CONFIG_FILE[]      = "/data/misc/wifi/hostapd.conf";
 static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
 static const char MODULE_FILE[]         = "/proc/modules";
 
@@ -127,10 +134,23 @@ static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
                                        0xf3, 0xf4, 0xf5 };
 
-/* Is either SUPPLICANT_NAME or P2P_SUPPLICANT_NAME */
-static char supplicant_name[PROPERTY_VALUE_MAX];
-/* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
-static char supplicant_prop_name[PROPERTY_KEY_MAX];
+struct svc_info_s {
+    const char *property_name;
+    const char *service_name;
+    const char *iface_dir;
+};
+
+static struct svc_info_s svc_info[WIFI_MAX_SUPP_MODE] = {
+    {SUPP_PROP_NAME, SUPPLICANT_NAME, WPA_SUPPLICANT_IFACE_DIR},
+    {HOSTAPD_PROP_NAME, HOSTAPD_NAME, HOSTAPD_IFACE_DIR},
+    {P2P_PROP_NAME, P2P_SUPPLICANT_NAME, WPA_SUPPLICANT_IFACE_DIR},
+};
+
+static int latest_wifi_mode;
+
+static char property_name[PROPERTY_VALUE_MAX];
+static char service_name[PROPERTY_VALUE_MAX];
+static char iface_dir[PROPERTY_VALUE_MAX];
 
 static int insmod(const char *filename, const char *args)
 {
@@ -341,6 +361,7 @@ int update_ctrl_interface(const char *config_file) {
     int srcfd, destfd;
     int nread;
     char ifc[PROPERTY_VALUE_MAX];
+    char strIfc[PROPERTY_VALUE_MAX];
     char *pbuf;
     char *sptr;
     struct stat sb;
@@ -368,8 +389,13 @@ int update_ctrl_interface(const char *config_file) {
 
     if (!strcmp(config_file, SUPP_CONFIG_FILE)) {
         property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
+        strcpy(strIfc, "ctrl_interface=");
+    } else if (!strcmp(config_file, HOSTAPD_CONFIG_FILE)) {
+        property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
+        strcpy(strIfc, "interface=");
     } else {
         strcpy(ifc, CONTROL_IFACE_PATH);
+        strcpy(strIfc, "ctrl_interface=");
     }
     /* Assume file is invalid to begin with */
     ret = -1;
@@ -383,11 +409,11 @@ int update_ctrl_interface(const char *config_file) {
      * The <value> is deemed to be a directory if the "DIR=" form is used or
      * the value begins with "/".
      */
-    if ((sptr = strstr(pbuf, "ctrl_interface="))) {
+    if ((sptr = strstr(pbuf, strIfc))) {
         ret = 0;
         if ((!strstr(pbuf, "ctrl_interface=DIR=")) &&
                 (!strstr(pbuf, "ctrl_interface=/"))) {
-            char *iptr = sptr + strlen("ctrl_interface=");
+            char *iptr = sptr + strlen(strIfc);
             int ilen = 0;
             int mlen = strlen(ifc);
             int nwrite;
@@ -414,7 +440,7 @@ int update_ctrl_interface(const char *config_file) {
     return ret;
 }
 
-int ensure_config_file_exists(const char *config_file)
+int ensure_config_file_exists(const char *config_file, const char *template_config_file)
 {
     char buf[2048];
     int srcfd, destfd;
@@ -442,9 +468,9 @@ int ensure_config_file_exists(const char *config_file)
         return -1;
     }
 
-    srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
+    srcfd = TEMP_FAILURE_RETRY(open(template_config_file, O_RDONLY));
     if (srcfd < 0) {
-        ALOGE("Cannot open \"%s\": %s", SUPP_CONFIG_TEMPLATE, strerror(errno));
+        ALOGE("Cannot open \"%s\": %s", template_config_file, strerror(errno));
         return -1;
     }
 
@@ -457,7 +483,7 @@ int ensure_config_file_exists(const char *config_file)
 
     while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
         if (nread < 0) {
-            ALOGE("Error reading \"%s\": %s", SUPP_CONFIG_TEMPLATE, strerror(errno));
+            ALOGE("Error reading \"%s\": %s", template_config_file, strerror(errno));
             close(srcfd);
             close(destfd);
             unlink(config_file);
@@ -486,40 +512,48 @@ int ensure_config_file_exists(const char *config_file)
     return update_ctrl_interface(config_file);
 }
 
-int wifi_start_supplicant(int p2p_supported)
+int wifi_start_supplicant(int wifi_mode)
 {
-    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+    char svc_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 200; /* wait at most 20 seconds for completion */
 #ifdef HAVE_LIBC_SYSTEM_PROPERTIES
     const prop_info *pi;
     unsigned serial = 0, i;
 #endif
-
-    if (p2p_supported) {
-        strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
-        strcpy(supplicant_prop_name, P2P_PROP_NAME);
-
-        /* Ensure p2p config file is created */
-        if (ensure_config_file_exists(P2P_CONFIG_FILE) < 0) {
-            ALOGE("Failed to create a p2p config file");
-            return -1;
-        }
-
-    } else {
-        strcpy(supplicant_name, SUPPLICANT_NAME);
-        strcpy(supplicant_prop_name, SUPP_PROP_NAME);
+    if (wifi_mode < WIFI_MODE_STA || wifi_mode > WIFI_MODE_P2P_STA) {
+        ALOGE("Fail to start for it's a invalid mode[%d]!", wifi_mode);
+        return -1;
     }
 
+    ALOGI("Trying to start wifi mode[%d]", wifi_mode);
+    latest_wifi_mode = wifi_mode;
+
     /* Check whether already running */
-    if (property_get(supplicant_name, supp_status, NULL)
-            && strcmp(supp_status, "running") == 0) {
+    if (property_get(svc_info[wifi_mode].service_name, svc_status, NULL)
+            && strcmp(svc_status, "running") == 0) {
+        ALOGE("Trying to enable mode[%d]; but %s is already running!",
+                wifi_mode, svc_info[wifi_mode].service_name);
         return 0;
     }
 
     /* Before starting the daemon, make sure its config file exists */
-    if (ensure_config_file_exists(SUPP_CONFIG_FILE) < 0) {
-        ALOGE("Wi-Fi will not be enabled");
-        return -1;
+    switch (wifi_mode) {
+        case WIFI_MODE_STA :
+		case WIFI_MODE_P2P_STA :
+            if (ensure_config_file_exists(SUPP_CONFIG_FILE, SUPP_CONFIG_TEMPLATE) < 0) {
+                ALOGE("Failed to create a wpa_supplicant config file");
+                return -1;
+            }
+            break;
+        case WIFI_MODE_AP :
+            if (ensure_config_file_exists(HOSTAPD_CONFIG_FILE, HOSTAPD_CONFIG_TEMPLATE) < 0) {
+                ALOGE("Failed to create a hostapd config file");
+                return -1;
+            }
+            break;
+        default :
+            ALOGE("Invalid mode: %d", wifi_mode);
+            return -1;
     }
 
     if (ensure_entropy_file_exists() < 0) {
@@ -540,33 +574,33 @@ int wifi_start_supplicant(int p2p_supported)
      * it starts in the stopped state and never manages to start
      * running at all.
      */
-    pi = __system_property_find(supplicant_prop_name);
+    pi = __system_property_find(svc_info[wifi_mode].property_name);
     if (pi != NULL) {
         serial = __system_property_serial(pi);
     }
 #endif
     property_get("wifi.interface", primary_iface, WIFI_TEST_INTERFACE);
 
-    property_set("ctl.start", supplicant_name);
+    property_set("ctl.start", svc_info[wifi_mode].service_name);
     sched_yield();
 
     while (count-- > 0) {
 #ifdef HAVE_LIBC_SYSTEM_PROPERTIES
         if (pi == NULL) {
-            pi = __system_property_find(supplicant_prop_name);
+            pi = __system_property_find(svc_info[wifi_mode].property_name);
         }
         if (pi != NULL) {
-            __system_property_read(pi, NULL, supp_status);
-            if (strcmp(supp_status, "running") == 0) {
+            __system_property_read(pi, NULL, svc_status);
+            if (strcmp(svc_status, "running") == 0) {
                 return 0;
             } else if (__system_property_serial(pi) != serial &&
-                    strcmp(supp_status, "stopped") == 0) {
+                    strcmp(svc_status, "stopped") == 0) {
                 return -1;
             }
         }
 #else
-        if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "running") == 0)
+        if (property_get(svc_info[wifi_mode].property_name, svc_status, NULL)) {
+            if (strcmp(svc_status, "running") == 0)
                 return 0;
         }
 #endif
@@ -575,31 +609,30 @@ int wifi_start_supplicant(int p2p_supported)
     return -1;
 }
 
-int wifi_stop_supplicant(int p2p_supported)
+int wifi_stop_supplicant(int wifi_mode)
 {
-    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+    char svc_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds for completion */
 
-    if (p2p_supported) {
-        strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
-        strcpy(supplicant_prop_name, P2P_PROP_NAME);
-    } else {
-        strcpy(supplicant_name, SUPPLICANT_NAME);
-        strcpy(supplicant_prop_name, SUPP_PROP_NAME);
-    }
-
-    /* Check whether supplicant already stopped */
-    if (property_get(supplicant_prop_name, supp_status, NULL)
-        && strcmp(supp_status, "stopped") == 0) {
+    if (wifi_mode != latest_wifi_mode) {
+        ALOGE("Return: not a matched mode[%d], cur_mode[%d]!", wifi_mode, latest_wifi_mode);
         return 0;
     }
 
-    property_set("ctl.stop", supplicant_name);
+    ALOGI("Trying to stop wifi mode[%d]", wifi_mode);
+
+    /* Check whether supplicant already stopped */
+    if (property_get(svc_info[wifi_mode].property_name, svc_status, NULL)
+            && strcmp(svc_status, "stopped") == 0) {
+        return 0;
+    }
+
+    property_set("ctl.stop", svc_info[wifi_mode].service_name);
     sched_yield();
 
     while (count-- > 0) {
-        if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "stopped") == 0)
+        if (property_get(svc_info[wifi_mode].property_name, svc_status, NULL)) {
+            if (strcmp(svc_status, "stopped") == 0)
                 return 0;
         }
         usleep(100000);
@@ -610,12 +643,12 @@ int wifi_stop_supplicant(int p2p_supported)
 
 int wifi_connect_on_socket_path(const char *path)
 {
-    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+    char svc_status[PROPERTY_VALUE_MAX] = {'\0'};
 
     /* Make sure supplicant is running */
-    if (!property_get(supplicant_prop_name, supp_status, NULL)
-            || strcmp(supp_status, "running") != 0) {
-        ALOGE("Supplicant not running, cannot connect");
+    if (!property_get(svc_info[latest_wifi_mode].property_name, svc_status, NULL)
+            || strcmp(svc_status, "running") != 0) {
+        ALOGE("Supplicant mode[%d] not running, cannot connect", latest_wifi_mode);
         return -1;
     }
 
@@ -653,8 +686,8 @@ int wifi_connect_to_supplicant()
 {
     static char path[PATH_MAX];
 
-    if (access(IFACE_DIR, F_OK) == 0) {
-        snprintf(path, sizeof(path), "%s/%s", IFACE_DIR, primary_iface);
+    if (access(svc_info[latest_wifi_mode].iface_dir, F_OK) == 0) {
+        snprintf(path, sizeof(path), "%s/%s", svc_info[latest_wifi_mode].iface_dir, primary_iface);
     } else {
         snprintf(path, sizeof(path), "@android:wpa_%s", primary_iface);
     }
@@ -807,14 +840,14 @@ void wifi_close_sockets()
 
 void wifi_close_supplicant_connection()
 {
-    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+    char svc_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds to ensure init has stopped stupplicant */
 
     wifi_close_sockets();
 
     while (count-- > 0) {
-        if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "stopped") == 0)
+        if (property_get(svc_info[latest_wifi_mode].property_name, svc_status, NULL)) {
+            if (strcmp(svc_status, "stopped") == 0)
                 return;
         }
         usleep(100000);
