@@ -1,0 +1,8 @@
+Code-Review+1: Dmitry Shmidt <dimitrysh%android.com@gtempaccount.com>
+Code-Review+2: Colin Cross <ccross@android.com>
+Verified+1: Deckard Autoverifier <deckard@android.com>
+Submitted-by: Narayan Kamath <narayan@google.com>
+Submitted-at: Mon, 17 Mar 2014 09:39:58 +0000
+Reviewed-on: https://android-review.googlesource.com/87855
+Project: platform/hardware/libhardware_legacy
+Branch: refs/heads/master
